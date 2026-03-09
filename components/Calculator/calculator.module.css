@@ -1,0 +1,222 @@
+/* =========================================================
+   CSS Custom Properties
+   ========================================================= */
+.calculator {
+  --color-bg-calc: #1c1c1e;
+  --color-display-bg: #000000;
+  --color-btn-number: #2c2c2e;
+  --color-btn-number-hover: #3a3a3c;
+  --color-btn-number-active: #48484a;
+  --color-btn-operator: #ff9f0a;
+  --color-btn-operator-hover: #ffb340;
+  --color-btn-operator-active: #ff8c00;
+  --color-btn-function: #3a3a3c;
+  --color-btn-function-hover: #4a4a4c;
+  --color-btn-function-active: #555557;
+  --color-text: #ffffff;
+  --color-text-expr: #8e8e93;
+  --color-operator-active-bg: #ffffff;
+  --color-operator-active-text: #ff9f0a;
+  --color-error: #ff453a;
+  --color-focus: #ff9f0a;
+}
+
+/* =========================================================
+   Calculator wrapper — entrance animation
+   ========================================================= */
+.calculator {
+  background: var(--color-bg-calc);
+  border-radius: 24px;
+  padding: 20px;
+  width: 100%;
+  max-width: 400px;
+  box-shadow:
+    0 32px 64px rgba(0, 0, 0, 0.6),
+    0 8px 24px rgba(0, 0, 0, 0.4);
+
+  animation: calcEnter 300ms ease both;
+}
+
+@keyframes calcEnter {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* =========================================================
+   Display
+   ========================================================= */
+.display {
+  background: var(--color-display-bg);
+  border-radius: 16px;
+  min-height: 110px;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  align-items: flex-end;
+  padding: 16px 20px;
+  margin-bottom: 16px;
+  overflow: hidden;
+}
+
+.displayExpression {
+  font-family: 'Inter', sans-serif;
+  font-size: 18px;
+  font-weight: 400;
+  color: var(--color-text-expr);
+  line-height: 1.4;
+  min-height: 25px;
+  word-break: break-all;
+  text-align: right;
+}
+
+.displayValue {
+  font-family: 'Inter', sans-serif;
+  font-size: 56px;
+  line-height: 64px;
+  font-weight: 600;
+  color: var(--color-text);
+  font-feature-settings: 'tnum';
+  word-break: break-all;
+  text-align: right;
+  transition: font-size 100ms ease;
+}
+
+.displayValue.size9plus {
+  font-size: 48px;
+  line-height: 56px;
+}
+
+.displayValue.size10plus {
+  font-size: 36px;
+  line-height: 44px;
+}
+
+.displayValue.sizeOverflow {
+  font-size: 28px;
+  line-height: 36px;
+}
+
+.displayValue.isError {
+  color: var(--color-error);
+  font-size: 48px;
+}
+
+/* =========================================================
+   Button grid
+   ========================================================= */
+.buttonGrid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+}
+
+/* =========================================================
+   Calculator button base
+   ========================================================= */
+.button {
+  height: 72px;
+  border: none;
+  border-radius: 16px;
+  font-family: 'Inter', sans-serif;
+  font-size: 22px;
+  font-weight: 500;
+  color: var(--color-text);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+
+  transition:
+    background-color 120ms ease,
+    transform 120ms ease,
+    color 120ms ease;
+}
+
+.button:active {
+  transform: scale(0.96);
+}
+
+/* Focus visible — keyboard navigation */
+.button:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
+/* ---- Variants ---- */
+.button.number {
+  background: var(--color-btn-number);
+}
+
+.button.number:hover {
+  background: var(--color-btn-number-hover);
+}
+
+.button.number:active {
+  background: var(--color-btn-number-active);
+}
+
+.button.function {
+  background: var(--color-btn-function);
+}
+
+.button.function:hover {
+  background: var(--color-btn-function-hover);
+}
+
+.button.function:active {
+  background: var(--color-btn-function-active);
+}
+
+.button.operator {
+  background: var(--color-btn-operator);
+}
+
+.button.operator:hover {
+  background: var(--color-btn-operator-hover);
+}
+
+.button.operator:active {
+  background: var(--color-btn-operator-active);
+}
+
+/* Operator "active" state — waiting for second operand */
+.button.operatorActive {
+  background: var(--color-operator-active-bg);
+  color: var(--color-operator-active-text);
+}
+
+.button.operatorActive:hover {
+  background: #e5e5e5;
+}
+
+.button.operatorActive:active {
+  background: #cccccc;
+  transform: scale(0.96);
+}
+
+/* =========================================================
+   Responsive — desktop
+   ========================================================= */
+@media (min-width: 480px) {
+  .button {
+    height: 80px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .calculator {
+    animation: none;
+  }
+  .button {
+    transition: none;
+  }
+}
