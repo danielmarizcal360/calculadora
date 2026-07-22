@@ -1,12 +1,14 @@
 'use client';
 
-import { useCallback, useEffect, useReducer } from 'react';
+import { useCallback, useEffect, useReducer, useState } from 'react';
 import Display from './Display';
 import ButtonGrid from './ButtonGrid';
+import HistoryPanel from './HistoryPanel';
 import styles from './calculator.module.css';
 import {
   CalculatorState,
   Operator,
+  HistoryEntry,
   initialState,
   inputDigit,
   inputDecimal,
@@ -17,6 +19,8 @@ import {
   inputBackspace,
   allClear,
   clearEntry,
+  clearHistory,
+  reuseHistoryEntry,
 } from '@/lib/calculator';
 
 // ---------------------------------------------------------------------------
@@ -31,7 +35,9 @@ type CalculatorAction =
   | { type: 'PERCENT' }
   | { type: 'NEGATE' }
   | { type: 'BACKSPACE' }
-  | { type: 'CLEAR' };
+  | { type: 'CLEAR' }
+  | { type: 'CLEAR_HISTORY' }
+  | { type: 'USE_HISTORY_ENTRY'; payload: HistoryEntry };
 
 function calculatorReducer(
   state: CalculatorState,
@@ -55,8 +61,12 @@ function calculatorReducer(
     case 'CLEAR':
       // AC when display is "0", otherwise C
       return state.displayValue === '0' && !state.operator && !state.firstOperand
-        ? allClear()
+        ? allClear(state)
         : clearEntry(state);
+    case 'CLEAR_HISTORY':
+      return clearHistory(state);
+    case 'USE_HISTORY_ENTRY':
+      return reuseHistoryEntry(state, action.payload);
     default:
       return state;
   }
@@ -68,6 +78,9 @@ function calculatorReducer(
 
 export default function Calculator() {
   const [state, dispatch] = useReducer(calculatorReducer, initialState);
+  // UI-only state: opening/closing the panel never touches the reducer, so it
+  // provably cannot mutate the current calculation.
+  const [historyOpen, setHistoryOpen] = useState(false);
 
   // Derived helpers
   const isZero =
@@ -80,6 +93,17 @@ export default function Calculator() {
     (e: KeyboardEvent) => {
       // Ignore modifier combos (e.g. Ctrl+R, Cmd+Z)
       if (e.ctrlKey || e.metaKey || e.altKey) return;
+
+      // While the history panel is open, the calculator keyboard is inert.
+      // Escape closes the panel; nothing else reaches the reducer, so the
+      // current calculation is left untouched.
+      if (historyOpen) {
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          setHistoryOpen(false);
+        }
+        return;
+      }
 
       if (e.key >= '0' && e.key <= '9') {
         e.preventDefault();
@@ -113,7 +137,7 @@ export default function Calculator() {
         dispatch({ type: 'PERCENT' });
       }
     },
-    [],
+    [historyOpen],
   );
 
   useEffect(() => {
@@ -156,12 +180,32 @@ export default function Calculator() {
     () => dispatch({ type: 'CLEAR' }),
     [],
   );
+  const handleClearHistory = useCallback(
+    () => dispatch({ type: 'CLEAR_HISTORY' }),
+    [],
+  );
+  const handleUseHistoryEntry = useCallback(
+    (entry: HistoryEntry) => dispatch({ type: 'USE_HISTORY_ENTRY', payload: entry }),
+    [],
+  );
 
   // ------------------------------------------------------------------
   // Render
   // ------------------------------------------------------------------
   return (
     <div className={styles.calculator} role="application" aria-label="Calculadora">
+      <div className={styles.header}>
+        <button
+          type="button"
+          className={styles.historyToggle}
+          onClick={() => setHistoryOpen((open) => !open)}
+          aria-label="Historial"
+          aria-expanded={historyOpen}
+        >
+          🕘
+        </button>
+      </div>
+
       <Display
         value={state.displayValue}
         expression={state.expression}
@@ -179,6 +223,14 @@ export default function Calculator() {
         onNegate={handleNegate}
         onBackspace={handleBackspace}
         onClear={handleAllClear}
+      />
+
+      <HistoryPanel
+        entries={state.history}
+        isOpen={historyOpen}
+        onClose={() => setHistoryOpen(false)}
+        onSelect={handleUseHistoryEntry}
+        onClear={handleClearHistory}
       />
     </div>
   );
