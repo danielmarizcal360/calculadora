@@ -105,8 +105,8 @@ jobs:
                Imprime la URL del PR al final.
           claude_args: |
             --model sonnet
-            --max-turns 30
-            --permission-mode acceptEdits
+            --max-turns 60
+            --permission-mode bypassPermissions
 
       # Reporte best-effort a Linear con el link del PR. No falla el job si esto falla.
       - name: Comment PR link on Linear
