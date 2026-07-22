@@ -147,6 +147,15 @@
   transform: scale(0.96);
 }
 
+.button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.button:disabled:active {
+  transform: none;
+}
+
 /* Focus visible — keyboard navigation */
 .button:focus-visible {
   outline: 2px solid var(--color-focus);

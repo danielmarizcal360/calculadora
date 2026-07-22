@@ -46,6 +46,8 @@ export interface CalculatorState {
   history: HistoryEntry[];
   /** Monotonic counter used to mint stable HistoryEntry ids. */
   historySeq: number;
+  /** Value stored via M+/M-, recalled via MR. Null when nothing is stored. */
+  memory: number | null;
 }
 
 export const initialState: CalculatorState = {
@@ -60,6 +62,7 @@ export const initialState: CalculatorState = {
   lastSecondOperand: null,
   history: [],
   historySeq: 0,
+  memory: null,
 };
 
 // ---------------------------------------------------------------------------
@@ -87,15 +90,17 @@ export function formatResult(value: number): string {
 
 /**
  * Reset the calculator to its initial arithmetic state WITHOUT discarding the
- * operation history. Every error/clear branch routes through this so that a
- * division-by-zero or AC never silently wipes the user's history — history is
- * only ever cleared by the dedicated `clearHistory` action.
+ * operation history or the stored memory value. Every error/clear branch
+ * routes through this so that a division-by-zero or AC never silently wipes
+ * the user's history or memory — those are only ever cleared by the
+ * dedicated `clearHistory`/`memoryClear` actions.
  */
 function resetCalc(state: CalculatorState): CalculatorState {
   return {
     ...initialState,
     history: state.history,
     historySeq: state.historySeq,
+    memory: state.memory,
   };
 }
 
@@ -421,6 +426,64 @@ export function reuseHistoryEntry(
     lastOperator: null,
     lastSecondOperand: null,
   };
+}
+
+// ---------------------------------------------------------------------------
+// Memory (M+, M-, MR, MC)
+// ---------------------------------------------------------------------------
+
+/** Add the current display value to the value stored in memory. */
+export function memoryAdd(state: CalculatorState): CalculatorState {
+  if (state.isError) return state;
+  const value = parseFloat(state.displayValue);
+  return { ...state, memory: (state.memory ?? 0) + value };
+}
+
+/** Subtract the current display value from the value stored in memory. */
+export function memorySubtract(state: CalculatorState): CalculatorState {
+  if (state.isError) return state;
+  const value = parseFloat(state.displayValue);
+  return { ...state, memory: (state.memory ?? 0) - value };
+}
+
+/**
+ * Recall the stored memory value as the current input.
+ * A no-op when nothing is stored.
+ * Mirrors `reuseHistoryEntry`: feeds a pending operation as the second
+ * operand, otherwise becomes a fresh current value.
+ */
+export function memoryRecall(state: CalculatorState): CalculatorState {
+  if (state.memory === null) return state;
+
+  const value = formatResult(state.memory);
+
+  if (state.waitingForSecondOperand) {
+    return {
+      ...state,
+      displayValue: value,
+      waitingForSecondOperand: false,
+      justEvaluated: false,
+      isError: false,
+    };
+  }
+
+  return {
+    ...state,
+    displayValue: value,
+    expression: '',
+    firstOperand: null,
+    operator: null,
+    waitingForSecondOperand: false,
+    justEvaluated: false,
+    isError: false,
+    lastOperator: null,
+    lastSecondOperand: null,
+  };
+}
+
+/** Clear the stored memory value. The calculator's display is untouched. */
+export function memoryClear(state: CalculatorState): CalculatorState {
+  return { ...state, memory: null };
 }
 
 // ---------------------------------------------------------------------------

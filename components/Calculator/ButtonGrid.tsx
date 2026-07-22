@@ -18,6 +18,12 @@ interface ButtonGridProps {
   onNegate: () => void;
   onBackspace: () => void;
   onClear: () => void;
+  /** Whether a value is currently stored in memory — enables MR/MC */
+  hasMemory: boolean;
+  onMemoryAdd: () => void;
+  onMemorySubtract: () => void;
+  onMemoryRecall: () => void;
+  onMemoryClear: () => void;
 }
 
 interface ButtonDef {
@@ -27,6 +33,7 @@ interface ButtonDef {
   action: () => void;
   /** The Operator value this button represents, for active-state comparison */
   operatorValue?: Operator;
+  disabled?: boolean;
 }
 
 function ButtonGrid({
@@ -41,16 +48,49 @@ function ButtonGrid({
   onNegate,
   onBackspace,
   onClear,
+  hasMemory,
+  onMemoryAdd,
+  onMemorySubtract,
+  onMemoryRecall,
+  onMemoryClear,
 }: ButtonGridProps) {
   const clearLabel = isZero ? 'AC' : 'C';
 
-  // Row-major definition matching the 5×4 grid spec:
+  // Row-major definition matching the 6×4 grid spec:
+  // [  MC  ][  MR ][ M-  ][ M+  ]
   // [ AC/C ][ +/- ][  %  ][  ÷  ]
   // [  7   ][  8  ][  9  ][  ×  ]
   // [  4   ][  5  ][  6  ][  −  ]
   // [  1   ][  2  ][  3  ][  +  ]
   // [  0   ][  .  ][  ⌫  ][  =  ]
   const buttons: ButtonDef[] = [
+    // Memory row
+    {
+      label: 'MC',
+      ariaLabel: 'Borrar memoria',
+      variant: 'function',
+      action: onMemoryClear,
+      disabled: !hasMemory,
+    },
+    {
+      label: 'MR',
+      ariaLabel: 'Recuperar memoria',
+      variant: 'function',
+      action: onMemoryRecall,
+      disabled: !hasMemory,
+    },
+    {
+      label: 'M-',
+      ariaLabel: 'Restar de memoria',
+      variant: 'function',
+      action: onMemorySubtract,
+    },
+    {
+      label: 'M+',
+      ariaLabel: 'Sumar a memoria',
+      variant: 'function',
+      action: onMemoryAdd,
+    },
     // Row 1
     {
       label: clearLabel,
@@ -149,6 +189,7 @@ function ButtonGrid({
             ariaLabel={btn.ariaLabel}
             variant={btn.variant}
             isOperatorActive={isOperatorActive}
+            disabled={btn.disabled}
             onClick={btn.action}
           />
         );
