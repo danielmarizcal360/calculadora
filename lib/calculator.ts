@@ -4,6 +4,25 @@
 
 export type Operator = '+' | '-' | '×' | '÷';
 
+/** Maximum number of history entries kept in memory. */
+export const MAX_HISTORY = 50;
+
+/**
+ * A single completed operation stored in the history.
+ * Fully JSON-serializable (numbers + strings, no Date/function fields), so
+ * future localStorage persistence needs no shape change.
+ */
+export interface HistoryEntry {
+  /** Stable id derived from a monotonic counter — deterministic & testable. */
+  id: string;
+  firstOperand: number;
+  operator: Operator;
+  secondOperand: number;
+  result: number;
+  /** Readable form, e.g. "12 + 8 = 20". */
+  expression: string;
+}
+
 export interface CalculatorState {
   /** The value shown in the main display */
   displayValue: string;
@@ -23,6 +42,10 @@ export interface CalculatorState {
   lastOperator: Operator | null;
   /** The second operand used in the last evaluation — enables repeated = */
   lastSecondOperand: number | null;
+  /** In-memory history of completed operations (newest first). */
+  history: HistoryEntry[];
+  /** Monotonic counter used to mint stable HistoryEntry ids. */
+  historySeq: number;
 }
 
 export const initialState: CalculatorState = {
@@ -35,6 +58,8 @@ export const initialState: CalculatorState = {
   isError: false,
   lastOperator: null,
   lastSecondOperand: null,
+  history: [],
+  historySeq: 0,
 };
 
 // ---------------------------------------------------------------------------
@@ -58,6 +83,49 @@ export function formatResult(value: number): string {
   }
 
   return raw;
+}
+
+/**
+ * Reset the calculator to its initial arithmetic state WITHOUT discarding the
+ * operation history. Every error/clear branch routes through this so that a
+ * division-by-zero or AC never silently wipes the user's history — history is
+ * only ever cleared by the dedicated `clearHistory` action.
+ */
+function resetCalc(state: CalculatorState): CalculatorState {
+  return {
+    ...initialState,
+    history: state.history,
+    historySeq: state.historySeq,
+  };
+}
+
+/**
+ * Build the history patch for one successfully completed operation.
+ * Pure: the id comes from the monotonic `historySeq`, never Date/crypto.
+ * Newest entry first; list is capped at MAX_HISTORY.
+ */
+function appendHistory(
+  state: CalculatorState,
+  firstOperand: number,
+  operator: Operator,
+  secondOperand: number,
+  result: number,
+  expressionStr: string,
+): Pick<CalculatorState, 'history' | 'historySeq'> {
+  const historySeq = state.historySeq + 1;
+  const entry: HistoryEntry = {
+    id: String(historySeq),
+    firstOperand,
+    operator,
+    secondOperand,
+    result,
+    // expressionStr already ends in "=", e.g. "12 + 8 ="
+    expression: `${expressionStr} ${formatResult(result)}`,
+  };
+  return {
+    history: [entry, ...state.history].slice(0, MAX_HISTORY),
+    historySeq,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -173,7 +241,7 @@ export function inputOperator(
 
   if (result === null) {
     return {
-      ...initialState,
+      ...resetCalc(state),
       isError: true,
       displayValue: 'Error',
       expression: `${formatResult(firstOperand)} ${operator} ${formatResult(inputValue)} =`,
@@ -213,7 +281,7 @@ export function inputEquals(state: CalculatorState): CalculatorState {
 
     if (result === null) {
       return {
-        ...initialState,
+        ...resetCalc(state),
         isError: true,
         displayValue: 'Error',
         expression: expressionStr,
@@ -222,6 +290,7 @@ export function inputEquals(state: CalculatorState): CalculatorState {
 
     return {
       ...state,
+      ...appendHistory(state, base, lastOperator, lastSecondOperand, result, expressionStr),
       displayValue: formatResult(result),
       expression: expressionStr,
       firstOperand: result,
@@ -248,7 +317,7 @@ export function inputEquals(state: CalculatorState): CalculatorState {
 
   if (result === null) {
     return {
-      ...initialState,
+      ...resetCalc(state),
       isError: true,
       displayValue: 'Error',
       expression: expressionStr,
@@ -257,6 +326,7 @@ export function inputEquals(state: CalculatorState): CalculatorState {
 
   return {
     ...state,
+    ...appendHistory(state, firstOperand, operator, secondOperand, result, expressionStr),
     displayValue: formatResult(result),
     expression: expressionStr,
     firstOperand: result,
@@ -288,9 +358,9 @@ export function inputNegate(state: CalculatorState): CalculatorState {
 
 /** Handle the backspace button. */
 export function inputBackspace(state: CalculatorState): CalculatorState {
-  if (state.isError) return { ...initialState };
+  if (state.isError) return resetCalc(state);
   if (state.waitingForSecondOperand) return state;
-  if (state.justEvaluated) return { ...initialState };
+  if (state.justEvaluated) return resetCalc(state);
 
   const { displayValue } = state;
 
@@ -301,15 +371,56 @@ export function inputBackspace(state: CalculatorState): CalculatorState {
   return { ...state, displayValue: displayValue.slice(0, -1) };
 }
 
-/** Handle AC (all clear) — full reset. */
-export function allClear(): CalculatorState {
-  return { ...initialState, lastOperator: null, lastSecondOperand: null };
+/** Handle AC (all clear) — full arithmetic reset (history preserved). */
+export function allClear(state: CalculatorState): CalculatorState {
+  return resetCalc(state);
 }
 
 /** Handle C (clear entry) — clear only the current display value. */
 export function clearEntry(state: CalculatorState): CalculatorState {
-  if (state.isError) return { ...initialState };
+  if (state.isError) return resetCalc(state);
   return { ...state, displayValue: '0', isError: false };
+}
+
+/** Clear all history entries. The calculator's arithmetic state is untouched. */
+export function clearHistory(state: CalculatorState): CalculatorState {
+  return { ...state, history: [], historySeq: 0 };
+}
+
+/**
+ * Reuse a past result as the current value.
+ * - If an operation is pending (waiting for the second operand), the reused
+ *   result becomes that second operand (e.g. "12 +" then reuse 20 -> "12 + 20").
+ * - Otherwise it becomes a fresh current value, ready for new input.
+ */
+export function reuseHistoryEntry(
+  state: CalculatorState,
+  entry: HistoryEntry,
+): CalculatorState {
+  const value = formatResult(entry.result);
+
+  if (state.waitingForSecondOperand) {
+    return {
+      ...state,
+      displayValue: value,
+      waitingForSecondOperand: false,
+      justEvaluated: false,
+      isError: false,
+    };
+  }
+
+  return {
+    ...state,
+    displayValue: value,
+    expression: '',
+    firstOperand: null,
+    operator: null,
+    waitingForSecondOperand: false,
+    justEvaluated: false,
+    isError: false,
+    lastOperator: null,
+    lastSecondOperand: null,
+  };
 }
 
 // ---------------------------------------------------------------------------
