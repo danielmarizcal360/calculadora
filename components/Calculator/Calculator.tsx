@@ -21,6 +21,10 @@ import {
   clearEntry,
   clearHistory,
   reuseHistoryEntry,
+  memoryAdd,
+  memorySubtract,
+  memoryRecall,
+  memoryClear,
 } from '@/lib/calculator';
 
 // ---------------------------------------------------------------------------
@@ -37,7 +41,11 @@ type CalculatorAction =
   | { type: 'BACKSPACE' }
   | { type: 'CLEAR' }
   | { type: 'CLEAR_HISTORY' }
-  | { type: 'USE_HISTORY_ENTRY'; payload: HistoryEntry };
+  | { type: 'USE_HISTORY_ENTRY'; payload: HistoryEntry }
+  | { type: 'MEMORY_ADD' }
+  | { type: 'MEMORY_SUBTRACT' }
+  | { type: 'MEMORY_RECALL' }
+  | { type: 'MEMORY_CLEAR' };
 
 function calculatorReducer(
   state: CalculatorState,
@@ -67,6 +75,14 @@ function calculatorReducer(
       return clearHistory(state);
     case 'USE_HISTORY_ENTRY':
       return reuseHistoryEntry(state, action.payload);
+    case 'MEMORY_ADD':
+      return memoryAdd(state);
+    case 'MEMORY_SUBTRACT':
+      return memorySubtract(state);
+    case 'MEMORY_RECALL':
+      return memoryRecall(state);
+    case 'MEMORY_CLEAR':
+      return memoryClear(state);
     default:
       return state;
   }
@@ -188,6 +204,22 @@ export default function Calculator() {
     (entry: HistoryEntry) => dispatch({ type: 'USE_HISTORY_ENTRY', payload: entry }),
     [],
   );
+  const handleMemoryAdd = useCallback(
+    () => dispatch({ type: 'MEMORY_ADD' }),
+    [],
+  );
+  const handleMemorySubtract = useCallback(
+    () => dispatch({ type: 'MEMORY_SUBTRACT' }),
+    [],
+  );
+  const handleMemoryRecall = useCallback(
+    () => dispatch({ type: 'MEMORY_RECALL' }),
+    [],
+  );
+  const handleMemoryClear = useCallback(
+    () => dispatch({ type: 'MEMORY_CLEAR' }),
+    [],
+  );
 
   // ------------------------------------------------------------------
   // Render
@@ -223,6 +255,11 @@ export default function Calculator() {
         onNegate={handleNegate}
         onBackspace={handleBackspace}
         onClear={handleAllClear}
+        hasMemory={state.memory !== null}
+        onMemoryAdd={handleMemoryAdd}
+        onMemorySubtract={handleMemorySubtract}
+        onMemoryRecall={handleMemoryRecall}
+        onMemoryClear={handleMemoryClear}
       />
 
       <HistoryPanel
