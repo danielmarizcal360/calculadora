@@ -1,0 +1,128 @@
+# Slice 2A — Runner del agente (fase 2)
+# Corre Claude Code headless para resolver un ticket de Linear y abrir un PR.
+# Disparable manualmente (workflow_dispatch) para probar, y por repository_dispatch
+# (event_type: resolve-ticket) que enviará luego la tool MCP `resolve-ticket`.
+#
+# PENDIENTE DE VERIFICAR AL CABLEAR (no hardcodeado a ciegas):
+#   - Nombre/versión exacta de la action (anthropics/claude-code-action@v1) y sus inputs.
+#   - El model id actual (aquí uso el alias `sonnet`; pinnear un id concreto si se quiere).
+#
+# SECRETS requeridos en este repo (Settings > Secrets and variables > Actions):
+#   ANTHROPIC_API_KEY   — la key de Anthropic (fuel del agente)
+#   LINEAR_API_KEY      — leer el ticket y (best-effort) comentar el PR de vuelta
+#   AGENT_GH_TOKEN      — PAT con Contents:write + Pull requests:write en este repo
+#                         (si el workflow vive en el mismo repo destino, GITHUB_TOKEN
+#                          podría bastar; para clonar/pushear otros repos usar el PAT)
+
+name: Agent — Resolve Linear ticket
+
+on:
+  workflow_dispatch:
+    inputs:
+      ticket:
+        description: "Identificador del ticket de Linear (ej. TECH-385)"
+        required: true
+        type: string
+  repository_dispatch:
+    types: [resolve-ticket]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  # Un ticket a la vez; no cancelar corridas en curso.
+  group: agent-resolve-${{ github.event.inputs.ticket || github.event.client_payload.ticket }}
+  cancel-in-progress: false
+
+jobs:
+  resolve:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      TICKET: ${{ github.event.inputs.ticket || github.event.client_payload.ticket }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        run: npm ci || npm install
+
+      - name: Resolve branch name
+        run: echo "BRANCH=agent/${TICKET}-${{ github.run_id }}" >> "$GITHUB_ENV"
+
+      # Trae el ticket a un archivo — mantiene la LINEAR_API_KEY en un solo paso
+      # controlado, fuera del bash del agente. jq viene preinstalado en el runner.
+      - name: Fetch Linear ticket
+        env:
+          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
+        run: |
+          set -euo pipefail
+          NUM="${TICKET#TECH-}"
+          REQ=$(jq -n --arg num "$NUM" '{query: ("query { issues(filter: { number: { eq: " + $num + " }, team: { key: { eq: \"TECH\" } } }) { nodes { id identifier title description state { name } } } }")}')
+          RESP=$(curl -s -X POST https://api.linear.app/graphql \
+            -H "Authorization: $LINEAR_API_KEY" \
+            -H "Content-Type: application/json" \
+            -d "$REQ")
+          echo "$RESP" | jq -e '.data.issues.nodes[0]' > /dev/null || { echo "No se encontró $TICKET"; exit 1; }
+          echo "$RESP" | jq -r '.data.issues.nodes[0].id' > .linear-issue-id
+          echo "$RESP" | jq -r '.data.issues.nodes[0] | "# " + .identifier + ": " + .title + "\n\n" + (.description // "(sin descripción)")' > ticket.md
+          echo "LINEAR_ISSUE_ID=$(cat .linear-issue-id)" >> "$GITHUB_ENV"
+          echo "----- ticket.md -----"; sed -n '1,5p' ticket.md
+
+      - name: Run Claude Code agent
+        id: agent
+        uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          github_token: ${{ secrets.AGENT_GH_TOKEN }}
+          prompt: |
+            Eres un ingeniero de software autónomo. Resuelve el ticket descrito en el
+            archivo `ticket.md` (ya está en el working directory) implementando el cambio
+            en ESTE repositorio (ya está clonado). Sigue estos pasos, sin intervención humana:
+
+            1. Lee `ticket.md` y entiende el objetivo y los criterios de aceptación.
+            2. Explora el código real antes de planear. Respeta la arquitectura y patrones
+               existentes (p. ej. la capa pura vs. UI si aplica). No inventes dependencias.
+            3. Escribe un plan corto y luego REVÍSALO críticamente contra cada criterio de
+               aceptación y contra regresiones (edge cases, estado, errores) antes de tocar código.
+            4. Implementa el plan aprobado.
+            5. Valida hasta verde: `npx tsc --noEmit`, `npm run lint`, `npm run build`.
+               Si algo falla, corrige y repite. NO abras el PR con checks en rojo.
+            6. Crea la rama `${{ env.BRANCH }}`, commitea con Conventional Commits
+               (referencia el ticket ${{ env.TICKET }}) y haz push.
+            7. Abre un Pull Request contra `main` con:
+                  gh pr create --base main --head "${{ env.BRANCH }}" \
+                    --title "<conventional title> (${{ env.TICKET }})" \
+                    --body "<resumen del plan aplicado + criterios cubiertos>"
+               Imprime la URL del PR al final.
+          claude_args: |
+            --model sonnet
+            --max-turns 30
+            --permission-mode acceptEdits
+            --output-format json
+
+      # Reporte best-effort a Linear con el link del PR. No falla el job si esto falla.
+      - name: Comment PR link on Linear
+        if: always() && env.LINEAR_ISSUE_ID != ''
+        continue-on-error: true
+        env:
+          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
+          GH_TOKEN: ${{ secrets.AGENT_GH_TOKEN }}
+        run: |
+          set -uo pipefail
+          PR_URL=$(gh pr list --head "$BRANCH" --json url --jq '.[0].url' 2>/dev/null || true)
+          if [ -z "$PR_URL" ]; then echo "No PR encontrado para $BRANCH — omito comentario"; exit 0; fi
+          BODY="🤖 Agente: apliqué el plan y abrí el PR para ${TICKET}: ${PR_URL} — revísalo."
+          REQ=$(jq -n --arg id "$LINEAR_ISSUE_ID" --arg body "$BODY" '{query:"mutation($id: String!, $body: String!) { commentCreate(input: { issueId: $id, body: $body }) { success } }", variables:{id:$id, body:$body}}')
+          curl -s -X POST https://api.linear.app/graphql \
+            -H "Authorization: $LINEAR_API_KEY" \
+            -H "Content-Type: application/json" \
+            -d "$REQ" | jq -r '.data.commentCreate.success // "comment failed"'
