@@ -107,7 +107,6 @@ jobs:
             --model sonnet
             --max-turns 30
             --permission-mode acceptEdits
-            --output-format json
 
       # Reporte best-effort a Linear con el link del PR. No falla el job si esto falla.
       - name: Comment PR link on Linear
